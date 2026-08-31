@@ -1,7 +1,8 @@
-"""Voice Agent entrypoint built with the Pipecat framework.
+"""Voice Agent entrypoint built with the Pipecat framework and 3D WebGL Visualizer.
 
 Connects Audio transport (Local Mic/Speaker or Daily.co WebRTC), Silero VAD,
-Deepgram STT, OpenAI LLM, and Cartesia TTS into an end-to-end voice pipeline with tool calling.
+Deepgram STT, OpenAI LLM, and Cartesia TTS into an end-to-end voice pipeline with tool calling,
+and streams live pipeline states, transcripts, and audio waveforms to the 3D visualizer frontend.
 """
 
 import argparse
@@ -33,6 +34,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 
 from prompts import INITIAL_GREETING_INSTRUCTION, SYSTEM_PROMPT
 from tools import TOOLS_SCHEMA
+from visualizer_bridge import VisualizerBridge, VisualizerPipelineProcessor
 
 # Load environment variables from .env
 load_dotenv()
@@ -85,8 +87,11 @@ def check_api_keys():
         )
 
 
-async def run_local_voice_agent(allow_interruptions: bool = False):
-    """Runs the voice agent locally using your PC's microphone and speaker."""
+async def run_local_voice_agent(
+    allow_interruptions: bool = False,
+    bridge: VisualizerBridge | None = None,
+):
+    """Runs the voice agent locally using your PC's microphone, speaker, and 3D visualizer."""
     check_api_keys()
 
     from pipecat.transports.local.audio import (
@@ -97,12 +102,12 @@ async def run_local_voice_agent(allow_interruptions: bool = False):
     logger.info("Starting local voice agent using your microphone and speakers...")
 
     async with aiohttp.ClientSession() as session:
-        # 1. Local Transport (Microphone + Speaker + Tuned Silero VAD)
+        # 1. Local Transport (Microphone + Speaker + Ultra-snappy Silero VAD)
         vad_params = VADParams(
-            confidence=0.7,
-            start_secs=0.2,
-            stop_secs=0.7,  # 700ms pause tolerance prevents cutting off user mid-thought
-            min_volume=0.6,
+            confidence=0.65,
+            start_secs=0.08,  # Instant start detection (80ms)
+            stop_secs=0.40,   # Snappy turn stop (400ms instead of 700ms)
+            min_volume=0.55,
         )
         vad_analyzer = SileroVADAnalyzer(params=vad_params)
 
@@ -117,6 +122,9 @@ async def run_local_voice_agent(allow_interruptions: bool = False):
 
         # Echo suppressor prevents speaker audio from looping back into STT
         echo_suppressor = LocalAcousticEchoSuppressor(enabled=True)
+
+        # Visualizer processor forwards frames to the 3D WebGL frontend
+        viz_processor = VisualizerPipelineProcessor(bridge) if bridge else None
 
         # 2. Speech-to-Text (Deepgram Nova-2)
         stt = DeepgramSTTService(
@@ -147,19 +155,22 @@ async def run_local_voice_agent(allow_interruptions: bool = False):
         context = LLMContext(messages=messages, tools=TOOLS_SCHEMA)
         context_aggregator = LLMContextAggregatorPair(context)
 
-        # 5. Build Pipeline with Echo Suppressor
-        pipeline = Pipeline(
-            [
-                transport.input(),
-                echo_suppressor,
-                stt,
-                context_aggregator.user(),
-                llm,
-                tts,
-                transport.output(),
-                context_aggregator.assistant(),
-            ]
-        )
+        # 5. Build Pipeline with Echo Suppressor and 3D Visualizer Forwarder
+        pipeline_processors = [
+            transport.input(),
+            echo_suppressor,
+            stt,
+            context_aggregator.user(),
+            llm,
+            tts,
+            transport.output(),
+            context_aggregator.assistant(),
+        ]
+
+        if viz_processor:
+            pipeline_processors.append(viz_processor)
+
+        pipeline = Pipeline(pipeline_processors)
 
         task = PipelineTask(
             pipeline,
@@ -186,8 +197,12 @@ async def run_local_voice_agent(allow_interruptions: bool = False):
         await runner.run(task)
 
 
-async def run_daily_voice_agent(room_url: str, token: str | None = None):
-    """Initializes and runs the Daily WebRTC voice pipeline."""
+async def run_daily_voice_agent(
+    room_url: str,
+    token: str | None = None,
+    bridge: VisualizerBridge | None = None,
+):
+    """Initializes and runs the Daily WebRTC voice pipeline with 3D visualizer."""
     try:
         from pipecat.transports.services.daily import DailyParams, DailyTransport
     except ImportError:
@@ -223,6 +238,8 @@ async def run_daily_voice_agent(room_url: str, token: str | None = None):
             ),
         )
 
+        viz_processor = VisualizerPipelineProcessor(bridge) if bridge else None
+
         # 2. Speech-to-Text (Deepgram Nova-2)
         stt = DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY", ""),
@@ -253,17 +270,20 @@ async def run_daily_voice_agent(room_url: str, token: str | None = None):
         context_aggregator = LLMContextAggregatorPair(context)
 
         # 5. Build Pipeline
-        pipeline = Pipeline(
-            [
-                transport.input(),
-                stt,
-                context_aggregator.user(),
-                llm,
-                tts,
-                transport.output(),
-                context_aggregator.assistant(),
-            ]
-        )
+        pipeline_processors = [
+            transport.input(),
+            stt,
+            context_aggregator.user(),
+            llm,
+            tts,
+            transport.output(),
+            context_aggregator.assistant(),
+        ]
+
+        if viz_processor:
+            pipeline_processors.append(viz_processor)
+
+        pipeline = Pipeline(pipeline_processors)
 
         task = PipelineTask(
             pipeline,
@@ -298,9 +318,42 @@ async def run_daily_voice_agent(room_url: str, token: str | None = None):
         await runner.run(task)
 
 
+async def main_async(args):
+    """Asynchronous main orchestrator running the visualizer bridge and voice pipeline."""
+    bridge = None
+    if not args.no_visualizer:
+        bridge = VisualizerBridge(port=args.visualizer_port)
+        await bridge.start()
+        print(f"\n{'='*70}")
+        print(f" 🌐 3D VISUALIZER UI IS LIVE AT: http://localhost:{args.visualizer_port}")
+        print(f" Open your browser to http://localhost:{args.visualizer_port} to view the 3D agent!")
+        print(f"{'='*70}\n")
+
+    try:
+        if args.mode == "local":
+            await run_local_voice_agent(
+                allow_interruptions=args.allow_interruptions,
+                bridge=bridge,
+            )
+        else:
+            if not args.url:
+                logger.error(
+                    "Room URL is required for Daily mode! Pass via --url/-u or set DAILY_SAMPLE_ROOM_URL in .env"
+                )
+                sys.exit(1)
+            await run_daily_voice_agent(
+                room_url=args.url,
+                token=args.token,
+                bridge=bridge,
+            )
+    finally:
+        if bridge:
+            await bridge.stop()
+
+
 def main():
     """CLI Argument parsing and runner."""
-    parser = argparse.ArgumentParser(description="Pipecat Real-Time Voice Agent")
+    parser = argparse.ArgumentParser(description="Pipecat Real-Time Voice Agent with 3D Visualizer")
     parser.add_argument(
         "--mode",
         choices=["local", "daily"],
@@ -312,6 +365,18 @@ def main():
         action="store_true",
         default=False,
         help="Enable mid-sentence speech interruptions (recommended when using headphones). Default: False for local speakers.",
+    )
+    parser.add_argument(
+        "--no-visualizer",
+        action="store_true",
+        default=False,
+        help="Disable the 3D WebGL visualizer web server.",
+    )
+    parser.add_argument(
+        "--visualizer-port",
+        type=int,
+        default=8765,
+        help="Port for the 3D visualizer web server (default: 8765).",
     )
     parser.add_argument(
         "-u",
@@ -331,15 +396,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        if args.mode == "local":
-            asyncio.run(run_local_voice_agent(allow_interruptions=args.allow_interruptions))
-        else:
-            if not args.url:
-                logger.error(
-                    "Room URL is required for Daily mode! Pass via --url/-u or set DAILY_SAMPLE_ROOM_URL in .env"
-                )
-                sys.exit(1)
-            asyncio.run(run_daily_voice_agent(room_url=args.url, token=args.token))
+        asyncio.run(main_async(args))
     except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("Voice agent stopped.")
 

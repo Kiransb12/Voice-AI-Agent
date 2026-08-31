@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Voice AI Visualizer</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
+</head>
+<body>
+    <!-- Pure 3D Canvas Container -->
+    <div id="canvas-container">
+        <div class="bg-layer bg-idle active"></div>
+        <div class="bg-layer bg-listening"></div>
+        <div class="bg-layer bg-speaking"></div>
+        <div class="bg-layer bg-thinking"></div>
+        <div class="visualizer-backdrop-glow"></div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

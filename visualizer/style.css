@@ -1,0 +1,85 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+}
+
+body, html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #020306;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Fullscreen 3D Canvas container */
+#canvas-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    background-color: #020306;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.bg-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.bg-layer.active {
+    opacity: 1;
+}
+
+/* State-specific ambient background lighting */
+.bg-idle {
+    background: radial-gradient(circle at center, rgba(10, 24, 75, 0.45) 0%, rgba(3, 5, 15, 0.95) 50%, #010205 100%);
+}
+
+.bg-listening {
+    background: radial-gradient(circle at center, rgba(0, 110, 255, 0.45) 0%, rgba(0, 15, 60, 0.95) 50%, #010205 100%);
+}
+
+.bg-speaking {
+    background: radial-gradient(circle at center, rgba(229, 70, 163, 0.45) 0%, rgba(45, 10, 30, 0.95) 50%, #010205 100%);
+}
+
+.bg-thinking {
+    background: radial-gradient(circle at center, rgba(123, 44, 191, 0.45) 0%, rgba(20, 5, 40, 0.95) 50%, #010205 100%);
+}
+
+/* Glowing center backdrop halo */
+.visualizer-backdrop-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 55vh;
+    height: 55vh;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0, 136, 255, 0.35) 0%, rgba(229, 70, 163, 0.2) 55%, rgba(0, 0, 0, 0) 75%);
+    filter: blur(35px);
+    pointer-events: none;
+    z-index: 1;
+}
+
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    position: relative;
+    z-index: 2;
+    cursor: default;
+}
