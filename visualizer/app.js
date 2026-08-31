@@ -171,7 +171,7 @@ const onResize = () => {
 };
 window.addEventListener("resize", onResize, { passive: true });
 
-// --- State Transitions ---
+// --- Instant State Transitions ---
 const setVisualizerState = (state) => {
   const validStates = ["idle", "listening", "speaking", "thinking"];
   if (!validStates.includes(state)) return;
@@ -230,7 +230,7 @@ initWebSocketBridge();
 let lastTime = performance.now();
 let accumulatedTime = 0;
 
-// --- Ultra-lightweight Render Loop ---
+// --- Ultra-Fast Render Loop ---
 const animate = () => {
   const now = performance.now();
   const delta = (now - lastTime) * 0.001;
@@ -239,9 +239,10 @@ const animate = () => {
   let speedMultiplier = 1.0;
   let targetFrequency = 0;
 
-  uniforms.u_colorCenter.value.lerp(targetColors.center, 0.08);
-  uniforms.u_colorCrescent.value.lerp(targetColors.crescent, 0.08);
-  uniforms.u_colorRim.value.lerp(targetColors.rim, 0.08);
+  // Ultra-snappy color interpolation (0.22)
+  uniforms.u_colorCenter.value.lerp(targetColors.center, 0.22);
+  uniforms.u_colorCrescent.value.lerp(targetColors.crescent, 0.22);
+  uniforms.u_colorRim.value.lerp(targetColors.rim, 0.22);
 
   if (currentState === "idle") {
     speedMultiplier = 0.55;
@@ -255,14 +256,15 @@ const animate = () => {
     speedMultiplier = 1.6;
     accumulatedTime += delta * speedMultiplier;
     targetFrequency = Math.max(remoteAudioFrequency, 4.5 + Math.sin(accumulatedTime * 4.0) * 2.5);
-    remoteAudioFrequency = Math.max(0, remoteAudioFrequency - delta * 22.0);
+    remoteAudioFrequency = Math.max(0, remoteAudioFrequency - delta * 30.0);
   } else if (currentState === "listening") {
-    speedMultiplier = 1.3;
+    speedMultiplier = 1.4;
     accumulatedTime += delta * speedMultiplier;
-    targetFrequency = 6.0 + Math.sin(accumulatedTime * 3.5) * 3.0;
+    targetFrequency = 7.0 + Math.sin(accumulatedTime * 4.0) * 3.5;
   }
 
-  uniforms.u_frequency.value += (targetFrequency - uniforms.u_frequency.value) * 0.18;
+  // Snappy frequency response
+  uniforms.u_frequency.value += (targetFrequency - uniforms.u_frequency.value) * 0.28;
   uniforms.u_time.value = accumulatedTime;
 
   camera.position.x += (mouseX - camera.position.x) * 0.05;
@@ -272,7 +274,6 @@ const animate = () => {
   mesh.rotation.y += 0.003;
   mesh.rotation.x = Math.sin(accumulatedTime * 0.4) * 0.08;
 
-  // Single direct native render pass (0% CPU impact)
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 };

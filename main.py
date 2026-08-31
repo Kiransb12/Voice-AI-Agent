@@ -102,12 +102,12 @@ async def run_local_voice_agent(
     logger.info("Starting local voice agent using your microphone and speakers...")
 
     async with aiohttp.ClientSession() as session:
-        # 1. Local Transport (Microphone + Speaker + Tuned Silero VAD)
+        # 1. Local Transport (Microphone + Speaker + Ultra-snappy Silero VAD)
         vad_params = VADParams(
-            confidence=0.7,
-            start_secs=0.2,
-            stop_secs=0.7,  # 700ms pause buffer prevents cutting off user mid-thought
-            min_volume=0.6,
+            confidence=0.65,
+            start_secs=0.08,  # Instant start detection (80ms)
+            stop_secs=0.40,   # Snappy turn stop (400ms instead of 700ms)
+            min_volume=0.55,
         )
         vad_analyzer = SileroVADAnalyzer(params=vad_params)
 
