@@ -1,0 +1,16 @@
+# Core Pipecat framework with service extras
+pipecat-ai[openai,deepgram,cartesia,silero,local]>=1.8.0
+
+# Local audio support (microphone/speaker on Windows/Linux/macOS)
+pyaudio>=0.2.14
+tzdata>=2024.1
+
+# Environment & utilities
+python-dotenv>=1.0.0
+aiohttp>=3.9.0
+loguru>=0.7.2
+pydantic>=2.5.0
+
+# Optional: For WebRTC via Daily (Linux/WSL2/macOS only - daily-python does not have Windows wheels)
+# daily-python>=0.13.0
+

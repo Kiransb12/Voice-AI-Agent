@@ -1,0 +1,38 @@
+# Environment Variables & Secrets (CRITICAL: NEVER COMMIT API KEYS)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# SQLite Databases & Local Storage
+*.db
+*.sqlite
+*.sqlite3
+appointments.db
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs & Metrics
+logs/
+*.log
