@@ -47,32 +47,58 @@ load_dotenv()
 
 
 class LocalAcousticEchoSuppressor(FrameProcessor):
-    """Prevents local speaker playback from feeding back into the microphone.
+    """Prevents local speaker playback feedback while instantly halting bot speech when the user speaks (Voice Barge-In)."""
 
-    When running with PC speakers and a built-in microphone without headphones,
-    this processor mutes microphone frames while the bot is speaking to avoid
-    self-triggering loops and false interruptions.
-    """
-
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, barge_in_threshold: float | None = None):
         super().__init__()
         self._enabled = enabled
         self._bot_speaking = False
+        default_thresh = float(os.getenv("BARGE_IN_THRESHOLD", "1050.0"))
+        self._threshold = barge_in_threshold if barge_in_threshold is not None else default_thresh
+        self._barge_in_consecutive = 0
 
     async def process_frame(self, frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, BotStartedSpeakingFrame):
             self._bot_speaking = True
+            self._barge_in_consecutive = 0
         elif isinstance(frame, (BotStoppedSpeakingFrame, InterruptionFrame)):
             self._bot_speaking = False
+            self._barge_in_consecutive = 0
 
-        # Drop mic input frames while the bot is speaking if echo suppression is active
+        # If bot is speaking and echo suppression is active:
         if (
             self._enabled
             and self._bot_speaking
             and isinstance(frame, (AudioRawFrame, InputAudioRawFrame))
         ):
+            # Inspect audio amplitude to instantly interrupt bot speech when user speaks
+            try:
+                import numpy as np
+
+                raw = getattr(frame, "audio", None)
+                if raw and len(raw) >= 2:
+                    samples = np.frombuffer(raw, dtype=np.int16)
+                    if len(samples) > 0:
+                        rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
+                        # If human user speaks directly into the mic, immediately halt bot speech!
+                        if rms >= self._threshold:
+                            self._barge_in_consecutive += 1
+                            if self._barge_in_consecutive >= 2 or rms >= 1350:
+                                self._barge_in_consecutive = 0
+                                self._bot_speaking = False
+                                logger.info(
+                                    f"⚡ [Instant Voice Barge-In] User spoke (RMS: {rms:.0f} >= {self._threshold}) -> Halting bot speech immediately!"
+                                )
+                                await self.broadcast_interruption()
+                                await self.push_frame(frame, direction)
+                                return
+                        else:
+                            self._barge_in_consecutive = 0
+            except Exception as e:
+                logger.warning(f"Barge-in detection error: {e}")
+            # Drop low-level speaker bleed while bot is talking to prevent feedback loops
             return
 
         await self.push_frame(frame, direction)
@@ -94,7 +120,7 @@ def check_api_keys():
 
 
 async def run_local_voice_agent(
-    allow_interruptions: bool = False,
+    allow_interruptions: bool = True,
     bridge: VisualizerBridge | None = None,
 ):
     """Runs the voice agent locally using your PC's microphone, speaker, and 3D visualizer."""
@@ -126,8 +152,8 @@ async def run_local_voice_agent(
             )
         )
 
-        # Echo suppressor prevents speaker audio from looping back into STT
-        echo_suppressor = LocalAcousticEchoSuppressor(enabled=True)
+        # Echo suppressor: keep mic open so user speech can reach STT for Voice Barge-In
+        echo_suppressor = LocalAcousticEchoSuppressor(enabled=False)
 
         # Visualizer processor forwards frames to the 3D WebGL frontend
         viz_processor = VisualizerPipelineProcessor(bridge) if bridge else None
@@ -365,7 +391,7 @@ async def main_async(args):
         if args.mode == "local" or args.mode == "server":
             # Runs the full voice pipeline (Mic/Speaker/VAD/STT/LLM/TTS) while serving all REST APIs & 3D Visualizer
             await run_local_voice_agent(
-                allow_interruptions=args.allow_interruptions,
+                allow_interruptions=getattr(args, "allow_interruptions", True),
                 bridge=bridge,
             )
         else:
@@ -394,10 +420,16 @@ def main():
         help="Transport mode: 'local' (mic/speaker), 'server' (Cloud REST & WebRTC host), or 'daily' (WebRTC room). Defaults to 'local' on Windows.",
     )
     parser.add_argument(
-        "--allow-interruptions",
+        "--no-interruptions",
         action="store_true",
         default=False,
-        help="Enable mid-sentence speech interruptions (recommended when using headphones). Default: False for local speakers.",
+        help="Disable barge-in speech interruptions.",
+    )
+    parser.add_argument(
+        "--allow-interruptions",
+        action="store_true",
+        default=True,
+        help="Enable mid-sentence speech interruptions (Enabled by default).",
     )
     parser.add_argument(
         "--no-visualizer",
@@ -427,6 +459,7 @@ def main():
     )
 
     args = parser.parse_args()
+    args.allow_interruptions = not args.no_interruptions
 
     try:
         asyncio.run(main_async(args))

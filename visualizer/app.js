@@ -237,10 +237,8 @@ const triggerBargeIn = () => {
 };
 
 window.addEventListener("pointerdown", (e) => {
-  // Allow clicking anywhere to interrupt assistant speech
-  if (currentState === "speaking") {
-    triggerBargeIn();
-  }
+  // Clicking or tapping anywhere immediately interrupts speech
+  triggerBargeIn();
 });
 
 window.addEventListener("keydown", (e) => {

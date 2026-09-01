@@ -49,6 +49,7 @@ class VisualizerBridge:
         self.site: web.TCPSite | None = None
         self.current_state = "idle"
         self.pipeline_task = None
+        self.viz_processor = None
         self._send_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
         self._worker_task: asyncio.Task | None = None
         self._setup_routes()
@@ -58,10 +59,19 @@ class VisualizerBridge:
         self.pipeline_task = task
         logger.info("Pipeline task linked to VisualizerBridge for barge-in interruptions.")
 
+    def set_viz_processor(self, processor):
+        """Links the active pipeline processor for instant upstream/downstream interruption broadcasting."""
+        self.viz_processor = processor
+
     async def trigger_interruption(self):
         """Instantly halts bot speech and transitions the pipeline & visualizer to listening."""
         logger.info("⚡ [Barge-In] Triggering instant interruption on active pipeline!")
-        if self.pipeline_task:
+        if self.viz_processor:
+            try:
+                await self.viz_processor.broadcast_interruption()
+            except Exception as e:
+                logger.warning(f"Error broadcasting interruption from processor: {e}")
+        elif self.pipeline_task:
             try:
                 await self.pipeline_task.queue_frame(InterruptionFrame())
             except Exception as e:
@@ -185,6 +195,7 @@ class VisualizerPipelineProcessor(FrameProcessor):
     def __init__(self, bridge: VisualizerBridge):
         super().__init__()
         self.bridge = bridge
+        self.bridge.set_viz_processor(self)
         self._last_tts_time = 0.0
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
