@@ -37,6 +37,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.services.tts_service import TextAggregationMode
 
 from prompts import INITIAL_GREETING_INSTRUCTION, SYSTEM_PROMPT
 from tools import TOOLS_SCHEMA
@@ -137,8 +138,8 @@ async def run_local_voice_agent(
         # 1. Local Transport (Microphone + Speaker + Ultra-snappy Silero VAD)
         vad_params = VADParams(
             confidence=0.65,
-            start_secs=0.08,  # Instant start detection (80ms)
-            stop_secs=0.40,   # Snappy turn stop (400ms instead of 700ms)
+            start_secs=0.06,  # Instant start detection (60ms)
+            stop_secs=0.28,   # Snappy turn stop (280ms instead of 400ms)
             min_volume=0.55,
         )
         vad_analyzer = SileroVADAnalyzer(params=vad_params)
@@ -158,25 +159,37 @@ async def run_local_voice_agent(
         # Visualizer processor forwards frames to the 3D WebGL frontend
         viz_processor = VisualizerPipelineProcessor(bridge) if bridge else None
 
-        # 2. Speech-to-Text (Deepgram Nova-2)
+        # 2. Speech-to-Text (Deepgram Nova-2 with Fast 120ms Endpointing)
         stt = DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY", ""),
+            settings=DeepgramSTTService.Settings(
+                model="nova-2-general",
+                language="en",
+                endpointing=120,       # 120ms endpointing (shaves ~180ms off STT finalization)
+                interim_results=True,  # Real-time interim tokens for instant barge-in
+                smart_format=True,
+            ),
         )
 
-        # 3. Text-to-Speech (Cartesia Sonic low-latency voice)
+        # 3. Text-to-Speech (Cartesia Sonic with Token Streaming Mode)
         voice_id = os.getenv(
             "CARTESIA_VOICE_ID", "79a125e8-cd45-4c13-8a67-188112f4dd22"
         )
         tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY", ""),
             settings=CartesiaTTSService.Settings(voice=voice_id),
+            text_aggregation_mode=TextAggregationMode.TOKEN,  # Synthesize token-by-token (shaves ~170ms off sentence aggregation)
         )
 
-        # 4. LLM & Context Management (OpenAI GPT-4o-mini with Live Tools)
+        # 4. LLM & Context Management (OpenAI GPT-4o-mini with Tuned Temperature & Token Cap)
         model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         llm = OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY", ""),
-            settings=OpenAILLMService.Settings(model=model_name),
+            settings=OpenAILLMService.Settings(
+                model=model_name,
+                temperature=0.6,
+                max_tokens=150,  # Fast streaming first-token generation
+            ),
         )
 
         # Initialize conversation messages context
@@ -186,18 +199,22 @@ async def run_local_voice_agent(
 
         context = LLMContext(messages=messages, tools=TOOLS_SCHEMA)
 
-        # Configure barge-in strategies
+        # Configure ultra-fast barge-in and turn-taking strategies
         user_params = None
         if allow_interruptions:
             from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregatorParams
             from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
                 TranscriptionUserTurnStartStrategy,
             )
+            from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
+                SpeechTimeoutUserTurnStopStrategy,
+            )
             from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
             user_params = LLMUserAggregatorParams(
                 user_turn_strategies=UserTurnStrategies(
-                    start=[TranscriptionUserTurnStartStrategy(use_interim=True)]
+                    start=[TranscriptionUserTurnStartStrategy(use_interim=True)],
+                    stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.28)],  # Instant 280ms stop bypasses ONNX CPU model
                 )
             )
 
@@ -294,25 +311,37 @@ async def run_daily_voice_agent(
 
         viz_processor = VisualizerPipelineProcessor(bridge) if bridge else None
 
-        # 2. Speech-to-Text (Deepgram Nova-2)
+        # 2. Speech-to-Text (Deepgram Nova-2 with Fast 120ms Endpointing)
         stt = DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY", ""),
+            settings=DeepgramSTTService.Settings(
+                model="nova-2-general",
+                language="en",
+                endpointing=120,
+                interim_results=True,
+                smart_format=True,
+            ),
         )
 
-        # 3. Text-to-Speech (Cartesia Sonic low-latency voice)
+        # 3. Text-to-Speech (Cartesia Sonic with Token Streaming Mode)
         voice_id = os.getenv(
             "CARTESIA_VOICE_ID", "79a125e8-cd45-4c13-8a67-188112f4dd22"
         )
         tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY", ""),
             settings=CartesiaTTSService.Settings(voice=voice_id),
+            text_aggregation_mode=TextAggregationMode.TOKEN,
         )
 
-        # 4. LLM & Context Management (OpenAI GPT-4o-mini with Live Tools)
+        # 4. LLM & Context Management (OpenAI GPT-4o-mini with Tuned Settings)
         model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         llm = OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY", ""),
-            settings=OpenAILLMService.Settings(model=model_name),
+            settings=OpenAILLMService.Settings(
+                model=model_name,
+                temperature=0.6,
+                max_tokens=150,
+            ),
         )
 
         # Initialize conversation messages context
@@ -321,7 +350,24 @@ async def run_daily_voice_agent(
         ]
 
         context = LLMContext(messages=messages, tools=TOOLS_SCHEMA)
-        context_aggregator = LLMContextAggregatorPair(context)
+
+        from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregatorParams
+        from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+            TranscriptionUserTurnStartStrategy,
+        )
+        from pipecat.turns.user_stop.speech_timeout_user_turn_stop_strategy import (
+            SpeechTimeoutUserTurnStopStrategy,
+        )
+        from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+        user_params = LLMUserAggregatorParams(
+            user_turn_strategies=UserTurnStrategies(
+                start=[TranscriptionUserTurnStartStrategy(use_interim=True)],
+                stop=[SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=0.28)],
+            )
+        )
+
+        context_aggregator = LLMContextAggregatorPair(context, user_params=user_params)
 
         # 5. Build Pipeline
         pipeline_processors = [
