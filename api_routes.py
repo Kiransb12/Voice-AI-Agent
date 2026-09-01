@@ -269,6 +269,22 @@ def register_api_routes(app: web.Application, bridge_instance=None):
             }
         )
 
+    # =========================================================================
+    # 6. Programmatic Barge-In / Interruption Endpoint
+    # =========================================================================
+    async def handle_interrupt(request: web.Request):
+        """Halts assistant speech immediately and resets pipeline & visualizer to listening state."""
+        if bridge_instance:
+            await bridge_instance.trigger_interruption()
+            return web.json_response(
+                {
+                    "status": "success",
+                    "interrupted": True,
+                    "message": "Assistant speech halted. Ready for new input.",
+                }
+            )
+        return web.json_response({"error": "Visualizer bridge not active"}, status=400)
+
     # Attach all routes to app (supports both GET and POST for testing)
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/appointments", handle_get_appointments)
@@ -282,5 +298,7 @@ def register_api_routes(app: web.Application, bridge_instance=None):
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_get("/api/webrtc/session", handle_webrtc_session)
     app.router.add_post("/api/webrtc/session", handle_webrtc_session)
+    app.router.add_get("/api/interrupt", handle_interrupt)
+    app.router.add_post("/api/interrupt", handle_interrupt)
 
     logger.info("Registered REST & WebRTC API routes at /api/*")

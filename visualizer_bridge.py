@@ -20,6 +20,7 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
     FunctionCallsStartedFrame,
+    InterruptionFrame,
     LLMFullResponseStartFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
@@ -37,7 +38,7 @@ STATIC_DIR = LOCAL_STATIC if os.path.exists(LOCAL_STATIC) else PARENT_STATIC
 
 
 class VisualizerBridge:
-    """Zero-overhead WebSocket server for the 3D visualizer."""
+    """Zero-overhead WebSocket server for the 3D visualizer with barge-in support."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8765):
         self.host = host
@@ -47,9 +48,25 @@ class VisualizerBridge:
         self.runner: web.AppRunner | None = None
         self.site: web.TCPSite | None = None
         self.current_state = "idle"
+        self.pipeline_task = None
         self._send_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
         self._worker_task: asyncio.Task | None = None
         self._setup_routes()
+
+    def set_pipeline_task(self, task):
+        """Links active Pipecat pipeline task for triggering barge-in interruptions."""
+        self.pipeline_task = task
+        logger.info("Pipeline task linked to VisualizerBridge for barge-in interruptions.")
+
+    async def trigger_interruption(self):
+        """Instantly halts bot speech and transitions the pipeline & visualizer to listening."""
+        logger.info("⚡ [Barge-In] Triggering instant interruption on active pipeline!")
+        if self.pipeline_task:
+            try:
+                await self.pipeline_task.queue_frame(InterruptionFrame())
+            except Exception as e:
+                logger.warning(f"Failed to queue InterruptionFrame: {e}")
+        self.broadcast_sync({"type": "state", "state": "listening"})
 
     def _setup_routes(self):
         from api_routes import register_api_routes
@@ -89,7 +106,13 @@ class VisualizerBridge:
 
         try:
             async for msg in ws:
-                pass
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "interrupt":
+                            await self.trigger_interruption()
+                    except Exception:
+                        pass
         finally:
             self.websockets.discard(ws)
             logger.info("3D Visualizer disconnected")

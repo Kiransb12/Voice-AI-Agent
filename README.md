@@ -13,6 +13,7 @@ An ultra-low latency, real-time conversational AI voice agent built with the [Pi
 - 🎙️ **Direct Local Audio Transport**: Hardware mic and speaker via `pyaudio` with zero network overhead.
 - 🛡️ **Acoustic Echo Shield**: `LocalAcousticEchoSuppressor` frame processor prevents speaker feedback loops and self-interruptions.
 - ⚡ **Ultra-Fast VAD Turn Pacing**: Tuned Silero VAD (80ms start detection, 400ms turn stop) for instant responsiveness.
+- 🛑 **Multi-Modal Barge-In**: Instant assistant interruption via 3D orb tap/click, keyboard hotkey (`Spacebar`), programmatic REST call (`POST /api/interrupt`), or voice (`--allow-interruptions`).
 - 🔮 **3D WebGL Orb Visualizer**: Native Three.js shader-based particle orb that dynamically morphs and deforms in real-time with 0% CPU footprint.
 - 🌐 **Full REST API Suite**: Exposes endpoints for Appointments, Weather, Timezone, Knowledge Search, and Text Chat.
 - 📡 **Real-Time WebSocket Event Stream**: Bi-directional event stream broadcasting agent states (`listening`, `thinking`, `speaking`, `idle`), transcripts, and audio waveforms.
@@ -94,6 +95,8 @@ When the agent runs, the following REST endpoints are available at `http://local
 | `GET` | `/api/time?location=Tokyo` | Proxy live timezone clock calculations. |
 | `POST` | `/api/search` | Execute real-time DuckDuckGo knowledge search. |
 | `POST` | `/api/chat` | Send a text message to GPT-4o-mini with tool execution. |
+| `GET/POST` | `/api/interrupt` | **Instant Barge-In**: Immediately halt assistant speech and reset to listening. |
+| `GET/POST` | `/api/webrtc/session` | Create cloud Daily WebRTC room and connect agent. |
 | `GET` | `/ws` | Real-time WebSocket event stream for visualizer or custom clients. |
 
 ---

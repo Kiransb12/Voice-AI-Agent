@@ -13,6 +13,11 @@ import aiohttp
 from dotenv import load_dotenv
 from loguru import logger
 
+from dns_resolver import setup_dns_fallback
+
+# Initialize automatic DNS fallback to avoid ISP DNS timeouts on Cartesia and Deepgram
+setup_dns_fallback()
+
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
@@ -20,6 +25,7 @@ from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     InputAudioRawFrame,
+    InterruptionFrame,
     LLMMessagesAppendFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -58,7 +64,7 @@ class LocalAcousticEchoSuppressor(FrameProcessor):
 
         if isinstance(frame, BotStartedSpeakingFrame):
             self._bot_speaking = True
-        elif isinstance(frame, BotStoppedSpeakingFrame):
+        elif isinstance(frame, (BotStoppedSpeakingFrame, InterruptionFrame)):
             self._bot_speaking = False
 
         # Drop mic input frames while the bot is speaking if echo suppression is active
@@ -153,7 +159,26 @@ async def run_local_voice_agent(
         ]
 
         context = LLMContext(messages=messages, tools=TOOLS_SCHEMA)
-        context_aggregator = LLMContextAggregatorPair(context)
+
+        # Configure barge-in strategies
+        user_params = None
+        if allow_interruptions:
+            from pipecat.processors.aggregators.llm_response_universal import LLMUserAggregatorParams
+            from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+                TranscriptionUserTurnStartStrategy,
+            )
+            from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+            user_params = LLMUserAggregatorParams(
+                user_turn_strategies=UserTurnStrategies(
+                    start=[TranscriptionUserTurnStartStrategy(use_interim=True)]
+                )
+            )
+
+        context_aggregator = LLMContextAggregatorPair(
+            context,
+            user_params=user_params,
+        )
 
         # 5. Build Pipeline with Echo Suppressor and 3D Visualizer Forwarder
         pipeline_processors = [
@@ -180,6 +205,10 @@ async def run_local_voice_agent(
                 enable_usage_metrics=True,
             ),
         )
+
+        # Link pipeline task to visualizer bridge for interactive/REST barge-in
+        if bridge:
+            bridge.set_pipeline_task(task)
 
         # Trigger initial greeting
         await task.queue_frames(
@@ -292,6 +321,9 @@ async def run_daily_voice_agent(
                 enable_usage_metrics=True,
             ),
         )
+
+        if bridge:
+            bridge.set_pipeline_task(task)
 
         # 6. Event Handlers
         @transport.event_handler("on_first_participant_joined")
