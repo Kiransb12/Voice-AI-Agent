@@ -1,4 +1,4 @@
-# 🎙️ Real-Time Voice Agent with Pipecat
+# Real-Time Voice Agent with Pipecat
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![Pipecat AI](https://img.shields.io/badge/Framework-Pipecat%201.8.x-orange.svg)](https://github.com/pipecat-ai/pipecat)
@@ -7,16 +7,16 @@
 An ultra-low latency, real-time conversational AI voice agent built with the [Pipecat AI](https://github.com/pipecat-ai/pipecat) framework.
 
 It integrates:
-- 🎙️ **Audio Transport**: Direct Local Microphone & Speaker (`pyaudio`) or WebRTC (`Daily.co`)
-- 🛡️ **Echo Suppression**: Built-in `LocalAcousticEchoSuppressor` preventing speaker-to-mic feedback loops
-- ⚡ **Voice Activity Detection**: Tuned Silero VAD for natural conversational pacing
-- 🗣️ **Speech-to-Text (STT)**: Deepgram Nova-2 streaming transcription
-- 🧠 **LLM Engine**: OpenAI GPT-4o-mini with live dynamic tool execution
-- 🔊 **Text-to-Speech (TTS)**: Cartesia Sonic sub-second streaming audio synthesis
+- **Audio Transport**: Direct Local Microphone & Speaker (`pyaudio`) or WebRTC (`Daily.co`)
+- **Echo Suppression**: Built-in `LocalAcousticEchoSuppressor` preventing speaker-to-mic feedback loops
+- **Voice Activity Detection**: Tuned Silero VAD for natural conversational pacing
+- **Speech-to-Text (STT)**: Deepgram Nova-2 streaming transcription
+- **LLM Engine**: OpenAI GPT-4o-mini with live dynamic tool execution
+- **Text-to-Speech (TTS)**: Cartesia Sonic sub-second streaming audio synthesis
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 voice-agent-pipecat/
@@ -32,7 +32,7 @@ voice-agent-pipecat/
 
 ---
 
-## ⚡ Architecture Flow
+## Architecture Flow
 
 ```
 [ User Microphone ]
@@ -59,7 +59,7 @@ voice-agent-pipecat/
 
 ---
 
-## 🛠️ Built-in Genuine Live Tools (100% Real-Time)
+## Built-in Genuine Live Tools (100% Real-Time)
 
 | Tool Name | Backend Service | Example Query |
 |---|---|---|
@@ -71,7 +71,7 @@ voice-agent-pipecat/
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### 1. Prerequisites
 - Python **3.10**, **3.11**, or **3.12**
