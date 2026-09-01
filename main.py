@@ -90,7 +90,7 @@ class LocalAcousticEchoSuppressor(FrameProcessor):
                                 self._barge_in_consecutive = 0
                                 self._bot_speaking = False
                                 logger.info(
-                                    f"⚡ [Instant Voice Barge-In] User spoke (RMS: {rms:.0f} >= {self._threshold}) -> Halting bot speech immediately!"
+                                    f"[Instant Voice Barge-In] User spoke (RMS: {rms:.0f} >= {self._threshold}) -> Halting bot speech immediately!"
                                 )
                                 await self.broadcast_interruption()
                                 await self.push_frame(frame, direction)
@@ -428,9 +428,9 @@ async def main_async(args):
         bridge = VisualizerBridge(port=args.visualizer_port)
         await bridge.start()
         print(f"\n{'='*70}")
-        print(f" 🌐 SERVER & 3D VISUALIZER LIVE AT: http://localhost:{args.visualizer_port}")
-        print(f" 📡 REST API: http://localhost:{args.visualizer_port}/api/status")
-        print(f" 🚀 WEBRTC SESSION API: POST http://localhost:{args.visualizer_port}/api/webrtc/session")
+        print(f" SERVER & 3D VISUALIZER LIVE AT: http://localhost:{args.visualizer_port}")
+        print(f" REST API: http://localhost:{args.visualizer_port}/api/status")
+        print(f" WEBRTC SESSION API: POST http://localhost:{args.visualizer_port}/api/webrtc/session")
         print(f"{'='*70}\n")
 
     try:

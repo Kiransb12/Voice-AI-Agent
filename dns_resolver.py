@@ -50,7 +50,7 @@ def _robust_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
             ip = _query_public_dns(host, server=dns_server)
             if ip:
                 _dns_cache[host] = ip
-                logger.info(f"🌐 [DNS Fallback] Resolved {host} -> {ip} via {dns_server}")
+                logger.info(f"[DNS Fallback] Resolved {host} -> {ip} via {dns_server}")
                 return _orig_getaddrinfo(ip, port, family, type, proto, flags)
 
         raise

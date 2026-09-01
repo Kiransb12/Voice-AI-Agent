@@ -230,7 +230,7 @@ initWebSocketBridge();
 // --- Interactive Barge-In (Tap / Click to Interrupt & Keyboard Hotkey) ---
 const triggerBargeIn = () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    console.log("⚡ [Barge-In] Sending interruption request via WebSocket");
+    console.log("[Barge-In] Sending interruption request via WebSocket");
     ws.send(JSON.stringify({ type: "interrupt" }));
     setVisualizerState("listening");
   }

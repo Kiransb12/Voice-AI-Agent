@@ -31,10 +31,8 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-# Path to 3D visualizer frontend directory (supports both local 'visualizer' folder and parent 'Voice-agent-3d')
-LOCAL_STATIC = os.path.abspath(os.path.join(os.path.dirname(__file__), "visualizer"))
-PARENT_STATIC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Voice-agent-3d"))
-STATIC_DIR = LOCAL_STATIC if os.path.exists(LOCAL_STATIC) else PARENT_STATIC
+# Path to 3D visualizer frontend directory
+STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "visualizer"))
 
 
 class VisualizerBridge:
@@ -65,7 +63,7 @@ class VisualizerBridge:
 
     async def trigger_interruption(self):
         """Instantly halts bot speech and transitions the pipeline & visualizer to listening."""
-        logger.info("⚡ [Barge-In] Triggering instant interruption on active pipeline!")
+        logger.info("[Barge-In] Triggering instant interruption on active pipeline!")
         if self.viz_processor:
             try:
                 await self.viz_processor.broadcast_interruption()
@@ -174,7 +172,7 @@ class VisualizerBridge:
         await self.site.start()
         self._worker_task = asyncio.create_task(self._queue_worker())
         logger.info(
-            f"✨ 3D Visualizer Server running at: http://{self.host}:{self.port}"
+            f"3D Visualizer Server running at: http://{self.host}:{self.port}"
         )
 
     async def stop(self):
