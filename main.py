@@ -206,12 +206,11 @@ async def run_daily_voice_agent(
     try:
         from pipecat.transports.services.daily import DailyParams, DailyTransport
     except ImportError:
-        logger.error(
-            "daily-python is not installed or not supported on this platform.\n"
-            "Note: daily-python requires Linux (or WSL2 on Windows) / macOS.\n"
-            "To test on Windows directly, run in local mode: python main.py --mode local"
+        logger.warning(
+            "daily-python WebRTC transport is only supported on Linux (or WSL2 on Windows), macOS, and Cloud Docker.\n"
+            "On native Windows, use Local Mode: python main.py --mode local"
         )
-        sys.exit(1)
+        return
 
     check_api_keys()
     logger.info(f"Connecting to Daily WebRTC Room: {room_url}")
@@ -319,18 +318,20 @@ async def run_daily_voice_agent(
 
 
 async def main_async(args):
-    """Asynchronous main orchestrator running the visualizer bridge and voice pipeline."""
+    """Asynchronous main orchestrator running the visualizer bridge, REST APIs, and voice pipeline."""
     bridge = None
-    if not args.no_visualizer:
+    if not args.no_visualizer or args.mode == "server":
         bridge = VisualizerBridge(port=args.visualizer_port)
         await bridge.start()
         print(f"\n{'='*70}")
-        print(f" 🌐 3D VISUALIZER UI IS LIVE AT: http://localhost:{args.visualizer_port}")
-        print(f" Open your browser to http://localhost:{args.visualizer_port} to view the 3D agent!")
+        print(f" 🌐 SERVER & 3D VISUALIZER LIVE AT: http://localhost:{args.visualizer_port}")
+        print(f" 📡 REST API: http://localhost:{args.visualizer_port}/api/status")
+        print(f" 🚀 WEBRTC SESSION API: POST http://localhost:{args.visualizer_port}/api/webrtc/session")
         print(f"{'='*70}\n")
 
     try:
-        if args.mode == "local":
+        if args.mode == "local" or args.mode == "server":
+            # Runs the full voice pipeline (Mic/Speaker/VAD/STT/LLM/TTS) while serving all REST APIs & 3D Visualizer
             await run_local_voice_agent(
                 allow_interruptions=args.allow_interruptions,
                 bridge=bridge,
@@ -356,9 +357,9 @@ def main():
     parser = argparse.ArgumentParser(description="Pipecat Real-Time Voice Agent with 3D Visualizer")
     parser.add_argument(
         "--mode",
-        choices=["local", "daily"],
-        default="local" if sys.platform == "win32" else "daily",
-        help="Transport mode: 'local' (mic/speaker) or 'daily' (WebRTC room). Defaults to 'local' on Windows.",
+        choices=["local", "server", "daily"],
+        default="local" if sys.platform == "win32" else "server",
+        help="Transport mode: 'local' (mic/speaker), 'server' (Cloud REST & WebRTC host), or 'daily' (WebRTC room). Defaults to 'local' on Windows.",
     )
     parser.add_argument(
         "--allow-interruptions",

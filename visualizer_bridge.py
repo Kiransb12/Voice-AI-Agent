@@ -52,7 +52,15 @@ class VisualizerBridge:
         self._setup_routes()
 
     def _setup_routes(self):
+        from api_routes import register_api_routes
+
+        # 1. Register REST API endpoints (/api/*)
+        register_api_routes(self.app, bridge_instance=self)
+
+        # 2. Register WebSocket Real-time Event Stream (/ws)
         self.app.router.add_get("/ws", self._websocket_handler)
+
+        # 3. Serve 3D Visualizer Frontend
         if os.path.exists(STATIC_DIR):
             async def index_handler(request):
                 index_path = os.path.join(STATIC_DIR, "index.html")
@@ -62,7 +70,7 @@ class VisualizerBridge:
             self.app.router.add_static("/", STATIC_DIR)
             logger.info(f"Serving 3D Visualizer UI from: {STATIC_DIR}")
         else:
-            logger.warning(f"Voice-agent-3d folder not found at: {STATIC_DIR}")
+            logger.warning(f"Static visualizer folder not found at: {STATIC_DIR}")
 
     async def _websocket_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=15.0)

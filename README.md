@@ -1,18 +1,21 @@
-# 🎙️ Real-Time Voice Agent with Pipecat
+# 🎙️ Real-Time Voice Agent with Pipecat & 3D WebGL Visualizer
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![Pipecat AI](https://img.shields.io/badge/Framework-Pipecat%201.8.x-orange.svg)](https://github.com/pipecat-ai/pipecat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-An ultra-low latency, real-time conversational AI voice agent built with the [Pipecat AI](https://github.com/pipecat-ai/pipecat) framework.
+An ultra-low latency, real-time conversational AI voice agent built with the [Pipecat AI](https://github.com/pipecat-ai/pipecat) framework and a 3D WebGL particle orb visualizer.
 
-It integrates:
-- 🎙️ **Audio Transport**: Direct Local Microphone & Speaker (`pyaudio`) or WebRTC (`Daily.co`)
-- 🛡️ **Echo Suppression**: Built-in `LocalAcousticEchoSuppressor` preventing speaker-to-mic feedback loops
-- ⚡ **Voice Activity Detection**: Tuned Silero VAD for natural conversational pacing
-- 🗣️ **Speech-to-Text (STT)**: Deepgram Nova-2 streaming transcription
-- 🧠 **LLM Engine**: OpenAI GPT-4o-mini with live dynamic tool execution
-- 🔊 **Text-to-Speech (TTS)**: Cartesia Sonic sub-second streaming audio synthesis
+---
+
+## ✨ Features
+
+- 🎙️ **Direct Local Audio Transport**: Hardware mic and speaker via `pyaudio` with zero network overhead.
+- 🛡️ **Acoustic Echo Shield**: `LocalAcousticEchoSuppressor` frame processor prevents speaker feedback loops and self-interruptions.
+- ⚡ **Ultra-Fast VAD Turn Pacing**: Tuned Silero VAD (80ms start detection, 400ms turn stop) for instant responsiveness.
+- 🔮 **3D WebGL Orb Visualizer**: Native Three.js shader-based particle orb that dynamically morphs and deforms in real-time with 0% CPU footprint.
+- 🌐 **Full REST API Suite**: Exposes endpoints for Appointments, Weather, Timezone, Knowledge Search, and Text Chat.
+- 📡 **Real-Time WebSocket Event Stream**: Bi-directional event stream broadcasting agent states (`listening`, `thinking`, `speaking`, `idle`), transcripts, and audio waveforms.
 
 ---
 
@@ -20,10 +23,16 @@ It integrates:
 
 ```
 voice-agent-pipecat/
-├── main.py              # Core Pipecat pipeline, transport modes, and runner
+├── main.py              # Core Pipecat pipeline runner & multi-transport orchestrator
+├── visualizer_bridge.py # Zero-overhead HTTP & WebSocket server for 3D visualizer
+├── api_routes.py        # REST API endpoints (/api/status, /api/appointments, etc.)
 ├── tools.py             # Live function schemas & handlers (Weather, Timezone, SQLite, Search)
 ├── prompts.py           # System persona & voice conversational style prompts
-├── requirements.txt     # Python package dependencies
+├── visualizer/          # Self-contained 3D WebGL visualizer frontend (HTML, CSS, JS)
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+├── requirements.txt     # Python dependencies
 ├── .env.example         # Environment configuration template
 ├── .gitignore           # Git ignore rules (protects API keys & database)
 ├── LICENSE              # MIT License
@@ -41,20 +50,20 @@ voice-agent-pipecat/
 [ Audio Transport + LocalAcousticEchoSuppressor + Silero VAD ]
        │
        ▼ (Audio Chunks)
-[ Deepgram STT Service ] (Nova-2 low-latency streaming transcription)
+[ Deepgram STT Service ] (Nova-2 streaming transcription)
        │
        ▼ (User Text Transcripts)
 [ OpenAI LLM Service ] (GPT-4o-mini + Live Tool Calling)
        │  ├── Tool Execution ➔ [ tools.py ] (Live Open-Meteo, zoneinfo, SQLite, Web Search)
        │
        ▼ (Assistant Response Stream)
-[ Cartesia TTS Service ] (Sonic low-latency streaming voice synthesis)
+[ Cartesia TTS Service ] (Sonic streaming voice synthesis)
        │
        ▼ (Audio Stream)
-[ Audio Transport Output ]
+[ Audio Transport Output ] ───► [ User Speakers / Headphones ]
        │
-       ▼
-[ User Speakers / Headphones ]
+       ▼ (WebSocket Events)
+[ 3D WebGL Visualizer UI ] (http://localhost:8765)
 ```
 
 ---
@@ -67,57 +76,54 @@ voice-agent-pipecat/
 | `get_current_time` | **Live Geocoding + IANA `zoneinfo`** (Accurate local clock & timezone) | *"What time is it in London or New York?"* |
 | `book_appointment` | **Persistent SQLite Database (`appointments.db`)** | *"Book a consultation for tomorrow at 2 PM under Sarah."* |
 | `get_booked_appointments` | **Persistent SQLite Database Query** | *"What appointments do I have booked under Sarah?"* |
-| `search_knowledge` | **Live DuckDuckGo Knowledge API** | *"Tell me about SpaceX or Quantum Computing."* |
+| `search_knowledge` | **Live DuckDuckGo Knowledge API** | *"Tell me about Quantum Computing."* |
+
+---
+
+## 🌐 Exposed REST API Endpoints
+
+When the agent runs, the following REST endpoints are available at `http://localhost:8765`:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/status` | Get pipeline health, active model configurations, and connected clients. |
+| `GET` | `/api/appointments` | List all booked appointments from SQLite (`?customer_name=...`). |
+| `POST` | `/api/appointments` | Book a new appointment via JSON payload. |
+| `DELETE` | `/api/appointments/{id}` | Cancel/delete an appointment by ID or booking code. |
+| `GET` | `/api/weather?location=Paris` | Proxy live Open-Meteo weather data. |
+| `GET` | `/api/time?location=Tokyo` | Proxy live timezone clock calculations. |
+| `POST` | `/api/search` | Execute real-time DuckDuckGo knowledge search. |
+| `POST` | `/api/chat` | Send a text message to GPT-4o-mini with tool execution. |
+| `GET` | `/ws` | Real-time WebSocket event stream for visualizer or custom clients. |
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-- Python **3.10**, **3.11**, or **3.12**
-- Microphone and Speaker (or Headphones)
-- API Keys for:
-  - [OpenAI](https://platform.openai.com) (LLM)
-  - [Deepgram](https://deepgram.com) (STT)
-  - [Cartesia](https://cartesia.ai) (TTS)
+### 1. Installation
+
+```bash
+git clone https://github.com/Kiransb12/Voice-AI-Agent.git
+cd Voice-AI-Agent/voice-agent-pipecat
+
+# Create virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1   # On Windows
+# source venv/bin/activate    # On Linux/macOS
+
+# Install dependencies
+pip install -r requirements.txt
+```
 
 ---
 
-### 2. Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/your-username/voice-agent-pipecat.git
-   cd voice-agent-pipecat
-   ```
-
-2. **Create and activate a virtual environment**:
-   - **Windows (PowerShell)**:
-     ```powershell
-     python -m venv venv
-     .\venv\Scripts\Activate.ps1
-     ```
-   - **macOS / Linux**:
-     ```bash
-     python3 -m venv venv
-     source venv/bin/activate
-     ```
-
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
----
-
-### 3. Environment Configuration
+### 2. Configure Environment Variables
 
 Copy `.env.example` to `.env`:
 
 ```bash
 cp .env.example .env
 ```
-*(On Windows PowerShell: `Copy-Item .env.example .env`)*
 
 Open `.env` and fill in your API credentials:
 
@@ -133,21 +139,15 @@ CARTESIA_VOICE_ID=79a125e8-cd45-4c13-8a67-188112f4dd22
 
 ---
 
-### 4. Run the Voice Agent
+### 3. Run the Voice Agent & Visualizer
 
-#### Direct Local Microphone & Speakers (Default)
 ```bash
 python main.py
 ```
 
-#### With Live Interruption Support (Recommended with Headphones)
-```bash
-python main.py --allow-interruptions
+Then open your browser to:
 ```
-
-#### Daily WebRTC Mode (Linux / WSL2 / Cloud)
-```bash
-python main.py --mode daily -u https://your-domain.daily.co/your-room-name
+http://localhost:8765
 ```
 
 ---
