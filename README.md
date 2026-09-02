@@ -23,6 +23,7 @@ An ultra-low latency, real-time conversational AI voice agent built with the [Pi
 - **Full REST API Suite**: Exposes endpoints for Appointments, Live Weather, Timezones, Text Chat, and WebRTC sessions.
 - **Real-Time WebSocket Event Stream**: Low-overhead event bus broadcasting state changes, user transcripts, and real-time audio frequencies.
 - **Resilient DNS Fallback**: Automatic UDP fallback to Google DNS (`8.8.8.8`) and Cloudflare DNS (`1.1.1.1`), preventing ISP DNS timeouts on Cartesia and Deepgram WebSocket handshakes.
+- **Instant Conversational Acknowledgment**: Emits real-time contextual spoken fillers (e.g. "Checking the weather for you", "Looking that up now") within ~180ms of tool calls, masking API latency and eliminating dead silence.
 - **Genuine Live Tools**: 100% functional live weather via Open-Meteo, local clock via IANA `zoneinfo`, persistent appointments via SQLite, and web knowledge via DuckDuckGo.
 
 ---
@@ -199,6 +200,8 @@ python main.py --mode daily --url https://your-domain.daily.co/your-room-name
 | Argument | Description | Default |
 |---|---|---|
 | `--mode` | Transport mode: `server` (Local Voice + REST + Visualizer), `local`, or `daily` | `server` |
+| `--headphones` | Enable full-duplex mic streaming when wearing headphones/headset | `False` (enables Speaker Echo Shield) |
+| `--no-fillers` | Disable spoken tool fillers for immediate direct answers | `False` |
 | `--allow-interruptions` | Mid-sentence speech interruptions enabled | `True` |
 | `--no-interruptions` | Flag to disable barge-in interruptions | `False` |
 | `--no-visualizer` | Disable the 3D WebGL web server | `False` |

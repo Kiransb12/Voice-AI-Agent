@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 import aiohttp
 from dotenv import load_dotenv
 from loguru import logger
@@ -18,15 +19,21 @@ from dns_resolver import setup_dns_fallback
 # Initialize automatic DNS fallback to avoid ISP DNS timeouts on Cartesia and Deepgram
 setup_dns_fallback()
 
+import re
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     AudioRawFrame,
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
+    Frame,
     InputAudioRawFrame,
+    InterimTranscriptionFrame,
     InterruptionFrame,
     LLMMessagesAppendFrame,
+    TextFrame,
+    TranscriptionFrame,
+    TTSTextFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -39,6 +46,7 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.tts_service import TextAggregationMode
 
+from acknowledgment_processor import ToolAcknowledgmentProcessor
 from prompts import INITIAL_GREETING_INSTRUCTION, SYSTEM_PROMPT
 from tools import TOOLS_SCHEMA
 from visualizer_bridge import VisualizerBridge, VisualizerPipelineProcessor
@@ -47,60 +55,117 @@ from visualizer_bridge import VisualizerBridge, VisualizerPipelineProcessor
 load_dotenv()
 
 
-class LocalAcousticEchoSuppressor(FrameProcessor):
-    """Prevents local speaker playback feedback while instantly halting bot speech when the user speaks (Voice Barge-In)."""
+class BotSpeechTracker:
+    """Tracks active bot speech dynamically with ZERO hardcoded words, keywords, or language dictionaries.
+    Allows full-duplex conversational barge-in identical to headphones by simply verifying whether
+    the transcribed audio is an acoustic echo of the bot's own currently spoken sentence.
+    """
 
-    def __init__(self, enabled: bool = True, barge_in_threshold: float | None = None):
+    def __init__(self):
+        self._current_text = ""
+        self._recent_text = ""
+        self.is_speaking = False
+
+    def record_bot_text(self, text: str):
+        if text:
+            self._current_text += " " + text
+            self._recent_text = self._current_text
+
+    def bot_started_speaking(self):
+        self.is_speaking = True
+
+    def bot_stopped_speaking(self):
+        self.is_speaking = False
+        self._current_text = ""
+
+    def clear_recent(self):
+        """Clears the recent buffer when genuine user speech is detected."""
+        self._recent_text = ""
+
+    def is_echo(self, transcript: str) -> bool:
+        """Determines if the transcript is a speaker acoustic echo of the bot's own voice.
+        Zero hardcoded words or lists: pure dynamic string and word-sequence matching.
+        """
+        candidate = self._current_text if self.is_speaking else self._recent_text
+        if not candidate or not transcript:
+            return False
+
+        t_words = re.findall(r"\b\w+\b", transcript.lower())
+        b_words = re.findall(r"\b\w+\b", candidate.lower())
+        if not t_words or not b_words:
+            return False
+
+        b_set = set(b_words)
+
+        # Single-word check:
+        # If that single word is part of the bot's current speech (e.g. 'time' while bot says 'Checking the time...'),
+        # it is an echo of the speaker! If it is NOT in the bot's speech (e.g. 'Stop', 'Wait', 'No'), it is a genuine user barge-in!
+        if len(t_words) == 1:
+            return t_words[0] in b_set
+
+        # Check if the transcribed phrase is a sequence of words in the bot's active speech
+        t_phrase = " ".join(t_words)
+        b_text = " ".join(b_words)
+        if f" {t_phrase} " in f" {b_text} " or t_phrase == b_text:
+            return True
+
+        # Check word overlap against active bot speech
+        overlap = sum(1 for w in t_words if w in b_set)
+        return (overlap / len(t_words)) >= 0.70
+
+
+class LexicalEchoFilter(FrameProcessor):
+    """Filters out Deepgram transcriptions that match the bot's own voice (laptop speaker bleed),
+    allowing genuine human barge-in speech to pass through instantly without false interruptions."""
+
+    def __init__(self, tracker: BotSpeechTracker, enabled: bool = True):
         super().__init__()
-        self._enabled = enabled
-        self._bot_speaking = False
-        default_thresh = float(os.getenv("BARGE_IN_THRESHOLD", "1050.0"))
-        self._threshold = barge_in_threshold if barge_in_threshold is not None else default_thresh
-        self._barge_in_consecutive = 0
+        self.tracker = tracker
+        self.enabled = enabled
 
-    async def process_frame(self, frame, direction: FrameDirection):
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, BotStartedSpeakingFrame):
-            self._bot_speaking = True
-            self._barge_in_consecutive = 0
+            self.tracker.bot_started_speaking()
         elif isinstance(frame, (BotStoppedSpeakingFrame, InterruptionFrame)):
-            self._bot_speaking = False
-            self._barge_in_consecutive = 0
+            self.tracker.bot_stopped_speaking()
 
-        # If bot is speaking and echo suppression is active:
-        if (
-            self._enabled
-            and self._bot_speaking
-            and isinstance(frame, (AudioRawFrame, InputAudioRawFrame))
-        ):
-            # Inspect audio amplitude to instantly interrupt bot speech when user speaks
-            try:
-                import numpy as np
+        if isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame)):
+            text = getattr(frame, "text", "").strip()
+            words = re.findall(r"\b\w+\b", text.lower())
 
-                raw = getattr(frame, "audio", None)
-                if raw and len(raw) >= 2:
-                    samples = np.frombuffer(raw, dtype=np.int16)
-                    if len(samples) > 0:
-                        rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
-                        # If human user speaks directly into the mic, immediately halt bot speech!
-                        if rms >= self._threshold:
-                            self._barge_in_consecutive += 1
-                            if self._barge_in_consecutive >= 2 or rms >= 1350:
-                                self._barge_in_consecutive = 0
-                                self._bot_speaking = False
-                                logger.info(
-                                    f"[Instant Voice Barge-In] User spoke (RMS: {rms:.0f} >= {self._threshold}) -> Halting bot speech immediately!"
-                                )
-                                await self.broadcast_interruption()
-                                await self.push_frame(frame, direction)
-                                return
-                        else:
-                            self._barge_in_consecutive = 0
-            except Exception as e:
-                logger.warning(f"Barge-in detection error: {e}")
-            # Drop low-level speaker bleed while bot is talking to prevent feedback loops
-            return
+            # If the bot is speaking, empty interim frames or punctuation must be dropped so they don't trigger false interruptions
+            if self.tracker.is_speaking and not words:
+                return
+
+            if self.enabled and words:
+                if self.tracker.is_echo(text):
+                    logger.debug(f"[Lexical Echo Shield] Suppressed speaker self-echo: '{text}'")
+                    return  # Drop speaker echo frame! Do not trigger interruption or append to context!
+                else:
+                    # Genuine user speech detected! Clear recent bot speech buffer
+                    self.tracker.clear_recent()
+
+        await self.push_frame(frame, direction)
+
+
+class BotSpeechRecorder(FrameProcessor):
+    """Passively records spoken assistant text from the pipeline so the echo filter knows what words the bot is saying."""
+
+    def __init__(self, tracker: BotSpeechTracker):
+        super().__init__()
+        self.tracker = tracker
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+
+        if isinstance(frame, (TextFrame, TTSTextFrame)):
+            text = getattr(frame, "text", "")
+            if text:
+                self.tracker.record_bot_text(text)
+        elif isinstance(frame, (BotStoppedSpeakingFrame, InterruptionFrame)):
+            self.tracker.bot_stopped_speaking()
 
         await self.push_frame(frame, direction)
 
@@ -122,6 +187,8 @@ def check_api_keys():
 
 async def run_local_voice_agent(
     allow_interruptions: bool = True,
+    headphones: bool = False,
+    enable_fillers: bool = True,
     bridge: VisualizerBridge | None = None,
 ):
     """Runs the voice agent locally using your PC's microphone, speaker, and 3D visualizer."""
@@ -153,8 +220,20 @@ async def run_local_voice_agent(
             )
         )
 
-        # Echo suppressor: keep mic open so user speech can reach STT for Voice Barge-In
-        echo_suppressor = LocalAcousticEchoSuppressor(enabled=False)
+        # Echo Tracker & Lexical Shield:
+        # Prevents laptop speaker bleed from interrupting the bot while allowing real human voice barge-in!
+        bot_tracker = BotSpeechTracker()
+        echo_filter = LexicalEchoFilter(bot_tracker, enabled=not headphones)
+        bot_recorder = BotSpeechRecorder(bot_tracker)
+
+        if not headphones:
+            logger.info(
+                "[Audio Mode] Lexical Echo Shield ACTIVE: Laptop speaker echo is filtered automatically. Voice barge-in is enabled!"
+            )
+        else:
+            logger.info(
+                "[Audio Mode] Headphone Mode ACTIVE: Mic 100% open for full-duplex voice barge-in."
+            )
 
         # Visualizer processor forwards frames to the 3D WebGL frontend
         viz_processor = VisualizerPipelineProcessor(bridge) if bridge else None
@@ -223,13 +302,18 @@ async def run_local_voice_agent(
             user_params=user_params,
         )
 
-        # 5. Build Pipeline with Echo Suppressor and 3D Visualizer Forwarder
+        # Real-time spoken acknowledgment processor for live tools
+        ack_processor = ToolAcknowledgmentProcessor(enabled=enable_fillers)
+
+        # 5. Build Pipeline with Lexical Echo Shield and 3D Visualizer Forwarder
         pipeline_processors = [
             transport.input(),
-            echo_suppressor,
             stt,
+            echo_filter,               # Drops self-echo from Deepgram before context_aggregator sees it!
             context_aggregator.user(),
             llm,
+            ack_processor,
+            bot_recorder,              # Records bot speech text for echo tracking
             tts,
             transport.output(),
             context_aggregator.assistant(),
@@ -369,12 +453,16 @@ async def run_daily_voice_agent(
 
         context_aggregator = LLMContextAggregatorPair(context, user_params=user_params)
 
+        # Real-time spoken acknowledgment processor for live tools
+        ack_processor = ToolAcknowledgmentProcessor()
+
         # 5. Build Pipeline
         pipeline_processors = [
             transport.input(),
             stt,
             context_aggregator.user(),
             llm,
+            ack_processor,
             tts,
             transport.output(),
             context_aggregator.assistant(),
@@ -438,6 +526,8 @@ async def main_async(args):
             # Runs the full voice pipeline (Mic/Speaker/VAD/STT/LLM/TTS) while serving all REST APIs & 3D Visualizer
             await run_local_voice_agent(
                 allow_interruptions=getattr(args, "allow_interruptions", True),
+                headphones=getattr(args, "headphones", False),
+                enable_fillers=not getattr(args, "no_fillers", False),
                 bridge=bridge,
             )
         else:
@@ -476,6 +566,20 @@ def main():
         action="store_true",
         default=True,
         help="Enable mid-sentence speech interruptions (Enabled by default).",
+    )
+    parser.add_argument(
+        "--headphones",
+        "--headset",
+        dest="headphones",
+        action="store_true",
+        default=False,
+        help="Enable if wearing headphones/earphones. Keeps mic 100%% open for full-duplex voice barge-in. (Default: False, enables Speaker Echo Shield).",
+    )
+    parser.add_argument(
+        "--no-fillers",
+        action="store_true",
+        default=False,
+        help="Disable spoken tool fillers for immediate direct answers without conversational acknowledgment.",
     )
     parser.add_argument(
         "--no-visualizer",
