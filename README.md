@@ -1,4 +1,4 @@
-# Real-Time Voice Agent with Pipecat & 3D WebGL Visualizer
+# Real-Time Voice Agent with Pipecat
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![Pipecat AI](https://img.shields.io/badge/Framework-Pipecat%201.8.x-orange.svg)](https://github.com/pipecat-ai/pipecat)
@@ -9,34 +9,13 @@
 
 An ultra-low latency, real-time conversational AI voice agent built with the [Pipecat AI](https://github.com/pipecat-ai/pipecat) framework and a dynamic 3D WebGL particle orb visualizer.
 
----
-
-## Key Features
-
-- **Ultra-Low Latency Turnaround**: Optimized to achieve instant conversational responsiveness by shaving **~500ms - 700ms** off standard pipeline turns.
-- **Real-Time Multi-Modal Barge-In**:
-  - **Voice Interruption**: Simply speak mid-sentence; the assistant stops within ~40ms.
-  - **Screen Tap / Click**: Click or tap anywhere on the 3D visualizer to instantly yield the turn back to you.
-  - **Keyboard Hotkeys**: Press `Spacebar` or `Escape` to halt speech immediately.
-  - **Programmatic REST**: Call `POST /api/interrupt` from any application.
-- **3D WebGL Shader Orb Visualizer**: Pure Three.js custom vertex/fragment shader particle orb that deforms and color-shifts across states (`listening` -> `thinking` -> `speaking` -> `idle`) with near-zero CPU footprint.
-- **Full REST API Suite**: Exposes endpoints for Appointments, Live Weather, Timezones, Text Chat, and WebRTC sessions.
-- **Real-Time WebSocket Event Stream**: Low-overhead event bus broadcasting state changes, user transcripts, and real-time audio frequencies.
-- **Resilient DNS Fallback**: Automatic UDP fallback to Google DNS (`8.8.8.8`) and Cloudflare DNS (`1.1.1.1`), preventing ISP DNS timeouts on Cartesia and Deepgram WebSocket handshakes.
-- **Instant Conversational Acknowledgment**: Emits real-time contextual spoken fillers (e.g. "Checking the weather for you", "Looking that up now") within ~180ms of tool calls, masking API latency and eliminating dead silence.
-- **Genuine Live Tools**: 100% functional live weather via Open-Meteo, local clock via IANA `zoneinfo`, persistent appointments via SQLite, and web knowledge via DuckDuckGo.
-
----
-
-## Latency Optimization Breakdown
-
-| Pipeline Component | Optimization Applied | Latency Saved |
-|---|---|---|
-| **Deepgram STT** | `endpointing=120ms`, `interim_results=True`, `smart_format=True` | **~180ms faster** finalization |
-| **Turn Detection** | `SpeechTimeoutUserTurnStopStrategy(0.28s)` (bypasses heavy CPU ONNX model) | **~250ms - 350ms faster** turn inference |
-| **Cartesia TTS** | `text_aggregation_mode=TextAggregationMode.TOKEN` (token-by-token streaming) | **~170ms faster** text aggregation |
-| **Silero VAD** | `start_secs=0.06s`, `stop_secs=0.28s` | **~120ms faster** voice detection |
-| **OpenAI LLM** | `temperature=0.6`, `max_tokens=150` | **Faster First-Token Arrival (TTFB)** |
+It integrates:
+- **Audio Transport**: Direct Local Microphone & Speaker (`pyaudio`) or WebRTC (`Daily.co`)
+- **Echo Suppression**: Built-in `LocalAcousticEchoSuppressor` preventing speaker-to-mic feedback loops
+- **Voice Activity Detection**: Tuned Silero VAD for natural conversational pacing
+- **Speech-to-Text (STT)**: Deepgram Nova-2 streaming transcription
+- **LLM Engine**: OpenAI GPT-4o-mini with live dynamic tool execution
+- **Text-to-Speech (TTS)**: Cartesia Sonic sub-second streaming audio synthesis
 
 ---
 
@@ -93,7 +72,7 @@ voice-agent-pipecat/
 
 ---
 
-## Built-in Genuine Live Tools
+## Built-in Genuine Live Tools (100% Real-Time)
 
 | Tool Name | Backend Service | Example Query |
 |---|---|---|
@@ -105,7 +84,7 @@ voice-agent-pipecat/
 
 ---
 
-## Exposed REST API Endpoints
+##  Getting Started
 
 When running in `--mode server`, the following REST endpoints are available at `http://localhost:8765`:
 
