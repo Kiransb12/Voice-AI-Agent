@@ -20,6 +20,7 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
     FunctionCallsStartedFrame,
+    InterruptionFrame,
     LLMFullResponseStartFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
@@ -30,14 +31,12 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-# Path to 3D visualizer frontend directory (supports both local 'visualizer' folder and parent 'Voice-agent-3d')
-LOCAL_STATIC = os.path.abspath(os.path.join(os.path.dirname(__file__), "visualizer"))
-PARENT_STATIC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Voice-agent-3d"))
-STATIC_DIR = LOCAL_STATIC if os.path.exists(LOCAL_STATIC) else PARENT_STATIC
+# Path to 3D visualizer frontend directory
+STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "visualizer"))
 
 
 class VisualizerBridge:
-    """Zero-overhead WebSocket server for the 3D visualizer."""
+    """Zero-overhead WebSocket server for the 3D visualizer with barge-in support."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8765):
         self.host = host
@@ -47,12 +46,46 @@ class VisualizerBridge:
         self.runner: web.AppRunner | None = None
         self.site: web.TCPSite | None = None
         self.current_state = "idle"
+        self.pipeline_task = None
+        self.viz_processor = None
         self._send_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
         self._worker_task: asyncio.Task | None = None
         self._setup_routes()
 
+    def set_pipeline_task(self, task):
+        """Links active Pipecat pipeline task for triggering barge-in interruptions."""
+        self.pipeline_task = task
+        logger.info("Pipeline task linked to VisualizerBridge for barge-in interruptions.")
+
+    def set_viz_processor(self, processor):
+        """Links the active pipeline processor for instant upstream/downstream interruption broadcasting."""
+        self.viz_processor = processor
+
+    async def trigger_interruption(self):
+        """Instantly halts bot speech and transitions the pipeline & visualizer to listening."""
+        logger.info("[Barge-In] Triggering instant interruption on active pipeline!")
+        if self.viz_processor:
+            try:
+                await self.viz_processor.broadcast_interruption()
+            except Exception as e:
+                logger.warning(f"Error broadcasting interruption from processor: {e}")
+        elif self.pipeline_task:
+            try:
+                await self.pipeline_task.queue_frame(InterruptionFrame())
+            except Exception as e:
+                logger.warning(f"Failed to queue InterruptionFrame: {e}")
+        self.broadcast_sync({"type": "state", "state": "listening"})
+
     def _setup_routes(self):
+        from api_routes import register_api_routes
+
+        # 1. Register REST API endpoints (/api/*)
+        register_api_routes(self.app, bridge_instance=self)
+
+        # 2. Register WebSocket Real-time Event Stream (/ws)
         self.app.router.add_get("/ws", self._websocket_handler)
+
+        # 3. Serve 3D Visualizer Frontend
         if os.path.exists(STATIC_DIR):
             async def index_handler(request):
                 index_path = os.path.join(STATIC_DIR, "index.html")
@@ -62,7 +95,7 @@ class VisualizerBridge:
             self.app.router.add_static("/", STATIC_DIR)
             logger.info(f"Serving 3D Visualizer UI from: {STATIC_DIR}")
         else:
-            logger.warning(f"Voice-agent-3d folder not found at: {STATIC_DIR}")
+            logger.warning(f"Static visualizer folder not found at: {STATIC_DIR}")
 
     async def _websocket_handler(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=15.0)
@@ -81,7 +114,13 @@ class VisualizerBridge:
 
         try:
             async for msg in ws:
-                pass
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                        if data.get("type") == "interrupt":
+                            await self.trigger_interruption()
+                    except Exception:
+                        pass
         finally:
             self.websockets.discard(ws)
             logger.info("3D Visualizer disconnected")
@@ -133,7 +172,7 @@ class VisualizerBridge:
         await self.site.start()
         self._worker_task = asyncio.create_task(self._queue_worker())
         logger.info(
-            f"✨ 3D Visualizer Server running at: http://{self.host}:{self.port}"
+            f"3D Visualizer Server running at: http://{self.host}:{self.port}"
         )
 
     async def stop(self):
@@ -154,6 +193,7 @@ class VisualizerPipelineProcessor(FrameProcessor):
     def __init__(self, bridge: VisualizerBridge):
         super().__init__()
         self.bridge = bridge
+        self.bridge.set_viz_processor(self)
         self._last_tts_time = 0.0
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):

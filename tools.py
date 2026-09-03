@@ -81,10 +81,13 @@ async def execute_get_current_weather(
     logger.info(f"[Live Tool] Fetching real-time weather for: {location}")
     try:
         async with aiohttp.ClientSession() as session:
-            # 1. Geocode location to get exact latitude and longitude
+            # Clean trailing details (e.g. 'Paris, France' -> 'Paris')
+            search_name = location.split(",")[0].strip()
+
+            # Geocode location to get exact latitude and longitude
             geo_url = (
                 f"https://geocoding-api.open-meteo.com/v1/search?"
-                f"name={urllib.parse.quote(location)}&count=1&language=en&format=json"
+                f"name={urllib.parse.quote(search_name)}&count=1&language=en&format=json"
             )
             async with session.get(geo_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if resp.status != 200:
@@ -154,9 +157,10 @@ async def execute_get_current_time(location_or_timezone: str = "UTC") -> Dict[st
         except Exception:
             # Geocode the location name to get its exact IANA timezone
             async with aiohttp.ClientSession() as session:
+                search_name = location_or_timezone.split(",")[0].strip()
                 geo_url = (
                     f"https://geocoding-api.open-meteo.com/v1/search?"
-                    f"name={urllib.parse.quote(location_or_timezone)}&count=1&language=en&format=json"
+                    f"name={urllib.parse.quote(search_name)}&count=1&language=en&format=json"
                 )
                 async with session.get(geo_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     if resp.status == 200:
@@ -240,14 +244,20 @@ async def execute_book_appointment(
 
 async def execute_get_booked_appointments(
     customer_name: Optional[str] = None,
+    booking_code: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Retrieves actual booked appointments from the SQLite database."""
-    logger.info(f"[Live Tool] Fetching booked appointments for: {customer_name or 'all'}")
+    logger.info(f"[Live Tool] Fetching booked appointments for: {customer_name or booking_code or 'all'}")
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            if customer_name:
+            if booking_code:
+                cursor.execute(
+                    "SELECT booking_code, customer_name, service_name, date, time, notes FROM appointments WHERE booking_code = ? ORDER BY id DESC LIMIT 5",
+                    (booking_code.strip().upper(),),
+                )
+            elif customer_name:
                 cursor.execute(
                     "SELECT booking_code, customer_name, service_name, date, time, notes FROM appointments WHERE customer_name LIKE ? ORDER BY id DESC LIMIT 5",
                     (f"%{customer_name.strip()}%",),

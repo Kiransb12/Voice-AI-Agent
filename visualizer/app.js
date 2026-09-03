@@ -227,6 +227,27 @@ const initWebSocketBridge = () => {
 
 initWebSocketBridge();
 
+// --- Interactive Barge-In (Tap / Click to Interrupt & Keyboard Hotkey) ---
+const triggerBargeIn = () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log("[Barge-In] Sending interruption request via WebSocket");
+    ws.send(JSON.stringify({ type: "interrupt" }));
+    setVisualizerState("listening");
+  }
+};
+
+window.addEventListener("pointerdown", (e) => {
+  // Clicking or tapping anywhere immediately interrupts speech
+  triggerBargeIn();
+});
+
+window.addEventListener("keydown", (e) => {
+  // Pressing Spacebar or Escape immediately interrupts speech
+  if (e.code === "Space" || e.code === "Escape") {
+    triggerBargeIn();
+  }
+});
+
 let lastTime = performance.now();
 let accumulatedTime = 0;
 
