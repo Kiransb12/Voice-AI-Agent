@@ -60,7 +60,7 @@ def register_api_routes(app: web.Application, bridge_instance=None):
     async def handle_get_appointments(request: web.Request):
         customer = request.query.get("customer_name")
         code = request.query.get("booking_code")
-        result = execute_get_booked_appointments(customer_name=customer, booking_code=code)
+        result = await execute_get_booked_appointments(customer_name=customer, booking_code=code)
         return web.json_response(result)
 
     async def handle_create_appointment(request: web.Request):
@@ -77,11 +77,11 @@ def register_api_routes(app: web.Application, bridge_instance=None):
                 status=400,
             )
 
-        result = execute_book_appointment(
+        result = await execute_book_appointment(
             customer_name=data["customer_name"],
             service_name=data["service_name"],
             date=data["date"],
-            time_slot=data["time"],
+            time=data["time"],
             notes=data.get("notes"),
         )
         return web.json_response(result)
@@ -127,7 +127,7 @@ def register_api_routes(app: web.Application, bridge_instance=None):
                 {"error": "Query param 'location' is required (e.g. ?location=London)"},
                 status=400,
             )
-        result = await execute_get_current_time(location=location)
+        result = await execute_get_current_time(location_or_timezone=location)
         return web.json_response(result)
 
     async def handle_search(request: web.Request):
@@ -162,7 +162,6 @@ def register_api_routes(app: web.Application, bridge_instance=None):
                 status=400,
             )
 
-        history = data.get("history", [])
         api_key = os.getenv("OPENAI_API_KEY")
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 

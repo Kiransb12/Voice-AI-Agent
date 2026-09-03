@@ -244,14 +244,20 @@ async def execute_book_appointment(
 
 async def execute_get_booked_appointments(
     customer_name: Optional[str] = None,
+    booking_code: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Retrieves actual booked appointments from the SQLite database."""
-    logger.info(f"[Live Tool] Fetching booked appointments for: {customer_name or 'all'}")
+    logger.info(f"[Live Tool] Fetching booked appointments for: {customer_name or booking_code or 'all'}")
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            if customer_name:
+            if booking_code:
+                cursor.execute(
+                    "SELECT booking_code, customer_name, service_name, date, time, notes FROM appointments WHERE booking_code = ? ORDER BY id DESC LIMIT 5",
+                    (booking_code.strip().upper(),),
+                )
+            elif customer_name:
                 cursor.execute(
                     "SELECT booking_code, customer_name, service_name, date, time, notes FROM appointments WHERE customer_name LIKE ? ORDER BY id DESC LIMIT 5",
                     (f"%{customer_name.strip()}%",),
